@@ -12,11 +12,10 @@
     "zod": "^4.6.7"
   },
   "scripts": {
-  "dev": "tsx watch src/server.ts",
-  "build": "tsc",
-  "start": "node dist/server.js"
-},
-  
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
     "@types/cookie-parser": "^1.4.10",
@@ -25,9 +24,8 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^26.6.6",
-    "prisma": "^8.0.0-rc.34",
+    "prisma": "^7.10.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
-  
 }

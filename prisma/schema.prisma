@@ -1,0 +1,634 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==================== ENUMS ====================
+
+enum Role {
+  USER
+  STORE_ADMIN
+  SUPER_ADMIN
+
+  @@map("role")
+}
+
+enum TokenType {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+  CHANGE_EMAIL
+
+  @@map("token_type")
+}
+
+enum JournalType {
+  IN
+  OUT
+
+  @@map("journal_type")
+}
+
+enum JournalReason {
+  INITIAL
+  RESTOCK
+  ADJUSTMENT
+  ORDER
+  ORDER_CANCEL
+  MUTATION_IN
+  MUTATION_OUT
+
+  @@map("journal_reason")
+}
+
+enum MutationStatus {
+  IN_TRANSIT
+  ARRIVED
+  CANCELLED
+
+  @@map("mutation_status")
+}
+
+enum DiscountType {
+  DIRECT
+  MIN_PURCHASE
+  BUY_X_GET_Y
+
+  @@map("discount_type")
+}
+
+enum ValueType {
+  PERCENTAGE
+  NOMINAL
+
+  @@map("value_type")
+}
+
+enum VoucherScope {
+  PRODUCT
+  ORDER_TOTAL
+  SHIPPING
+
+  @@map("voucher_scope")
+}
+
+enum VoucherTrigger {
+  MANUAL
+  REFERRAL
+  MIN_PURCHASE_REWARD
+  ORDER_COUNT_REWARD
+
+  @@map("voucher_trigger")
+}
+
+enum OrderStatus {
+  WAITING_PAYMENT
+  WAITING_CONFIRMATION
+  PROCESSING
+  SHIPPED
+  CONFIRMED
+  CANCELLED
+
+  @@map("order_status")
+}
+
+enum PaymentMethod {
+  MANUAL_TRANSFER
+  PAYMENT_GATEWAY
+
+  @@map("payment_method")
+}
+
+enum PaymentStatus {
+  PENDING
+  WAITING_REVIEW
+  APPROVED
+  REJECTED
+  PAID
+  EXPIRED
+
+  @@map("payment_status")
+}
+
+enum Actor {
+  USER
+  ADMIN
+  SYSTEM
+
+  @@map("actor")
+}
+
+enum AppliedKind {
+  DIRECT
+  MIN_PURCHASE
+  BUY_X_GET_Y
+  VOUCHER_PRODUCT
+  VOUCHER_TOTAL
+  VOUCHER_SHIPPING
+
+  @@map("applied_kind")
+}
+
+// ==================== ACCOUNTS ====================
+
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  passwordHash String?   @map("password_hash")
+  name         String?
+  avatarUrl    String?   @map("avatar_url")
+  role         Role      @default(USER)
+  storeId      Int?      @map("store_id")
+  isVerified   Boolean   @default(false) @map("is_verified")
+  referralCode String    @unique @map("referral_code")
+  referredById Int?      @map("referred_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  store         Store? @relation("StoreAdmins", fields: [storeId], references: [id])
+  referredBy    User?  @relation("UserReferrals", fields: [referredById], references: [id])
+  referredUsers User[] @relation("UserReferrals")
+
+  oauthAccounts      OauthAccount[]
+  tokens             UserToken[]
+  addresses          Address[]
+  cart               Cart?
+  orders             Order[]
+  userVouchers       UserVoucher[]
+  createdDiscounts   Discount[]           @relation("DiscountCreators")
+  createdVouchers    Voucher[]            @relation("VoucherCreators")
+  stockJournals      StockJournal[]       @relation("StockJournalCreators")
+  requestedMutations StockMutation[]      @relation("MutationRequesters")
+  reviewedPayments   Payment[]            @relation("PaymentReviewers")
+  statusChanges      OrderStatusHistory[] @relation("OrderStatusChangers")
+
+  @@map("users")
+}
+
+model OauthAccount {
+  id                Int      @id @default(autoincrement())
+  userId            Int      @map("user_id")
+  provider          String
+  providerAccountId String   @map("provider_account_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([provider, providerAccountId])
+  @@map("oauth_accounts")
+}
+
+model UserToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  type      TokenType
+  tokenHash String    @unique @map("token_hash")
+  newEmail  String?   @map("new_email")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_tokens")
+}
+
+// ==================== LOCATIONS ====================
+
+model Province {
+  id   Int    @id
+  name String
+
+  cities City[]
+
+  @@map("provinces")
+}
+
+model City {
+  id         Int     @id
+  provinceId Int     @map("province_id")
+  name       String
+  type       String
+  postalCode String? @map("postal_code")
+
+  province  Province  @relation(fields: [provinceId], references: [id])
+  addresses Address[]
+  stores    Store[]
+  orders    Order[]
+
+  @@map("cities")
+}
+
+model Address {
+  id            Int       @id @default(autoincrement())
+  userId        Int       @map("user_id")
+  label         String
+  recipientName String    @map("recipient_name")
+  phone         String
+  addressLine   String    @map("address_line")
+  cityId        Int       @map("city_id")
+  postalCode    String?   @map("postal_code")
+  latitude      Decimal   @db.Decimal(9, 6)
+  longitude     Decimal   @db.Decimal(9, 6)
+  isPrimary     Boolean   @default(false) @map("is_primary")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  user   User    @relation(fields: [userId], references: [id])
+  city   City    @relation(fields: [cityId], references: [id])
+  orders Order[]
+
+  @@map("addresses")
+}
+
+model Store {
+  id            Int       @id @default(autoincrement())
+  name          String    @unique
+  addressLine   String    @map("address_line")
+  cityId        Int       @map("city_id")
+  latitude      Decimal   @db.Decimal(9, 6)
+  longitude     Decimal   @db.Decimal(9, 6)
+  maxDistanceKm Int       @map("max_distance_km")
+  isMain        Boolean   @default(false) @map("is_main")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  city          City            @relation(fields: [cityId], references: [id])
+  admins        User[]          @relation("StoreAdmins")
+  stocks        Stock[]
+  mutationsFrom StockMutation[] @relation("MutationFromStore")
+  mutationsTo   StockMutation[] @relation("MutationToStore")
+  discounts     Discount[]
+  vouchers      Voucher[]
+  orders        Order[]
+
+  @@map("stores")
+}
+
+// ==================== PRODUCTS ====================
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  slug        String    @unique
+  description String?   @db.Text
+  imageUrl    String?   @map("image_url")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  products   Product[]
+  orderItems OrderItem[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          Int       @id @default(autoincrement())
+  categoryId  Int       @map("category_id")
+  name        String    @unique
+  slug        String    @unique
+  description String    @db.Text
+  price       Int
+  weightGram  Int       @map("weight_gram")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  category       Category        @relation(fields: [categoryId], references: [id])
+  images         ProductImage[]
+  stocks         Stock[]
+  stockMutations StockMutation[]
+  discounts      Discount[]
+  vouchers       Voucher[]
+  cartItems      CartItem[]
+  orderItems     OrderItem[]
+
+  @@map("products")
+}
+
+model ProductImage {
+  id        Int      @id @default(autoincrement())
+  productId Int      @map("product_id")
+  url       String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@map("product_images")
+}
+
+// ==================== INVENTORY ====================
+
+model Stock {
+  id        Int      @id @default(autoincrement())
+  storeId   Int      @map("store_id")
+  productId Int      @map("product_id")
+  quantity  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  store    Store          @relation(fields: [storeId], references: [id])
+  product  Product        @relation(fields: [productId], references: [id])
+  journals StockJournal[]
+
+  @@unique([storeId, productId])
+  @@map("stocks")
+}
+
+model StockJournal {
+  id              Int           @id @default(autoincrement())
+  stockId         Int           @map("stock_id")
+  type            JournalType
+  reason          JournalReason
+  quantity        Int
+  quantityBefore  Int           @map("quantity_before")
+  quantityAfter   Int           @map("quantity_after")
+  note            String?       @db.Text
+  orderId         Int?          @map("order_id")
+  stockMutationId Int?          @map("stock_mutation_id")
+  createdById     Int?          @map("created_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  stock         Stock          @relation(fields: [stockId], references: [id])
+  order         Order?         @relation(fields: [orderId], references: [id])
+  stockMutation StockMutation? @relation(fields: [stockMutationId], references: [id])
+  createdBy     User?          @relation("StockJournalCreators", fields: [createdById], references: [id])
+
+  @@index([stockId, createdAt])
+  @@map("stock_journals")
+}
+
+model StockMutation {
+  id            Int            @id @default(autoincrement())
+  fromStoreId   Int            @map("from_store_id")
+  toStoreId     Int            @map("to_store_id")
+  productId     Int            @map("product_id")
+  quantity      Int
+  orderId       Int?           @map("order_id")
+  status        MutationStatus @default(IN_TRANSIT)
+  requestedById Int            @map("requested_by_id")
+  arrivedAt     DateTime?      @map("arrived_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  fromStore   Store          @relation("MutationFromStore", fields: [fromStoreId], references: [id])
+  toStore     Store          @relation("MutationToStore", fields: [toStoreId], references: [id])
+  product     Product        @relation(fields: [productId], references: [id])
+  order       Order?         @relation(fields: [orderId], references: [id])
+  requestedBy User           @relation("MutationRequesters", fields: [requestedById], references: [id])
+  journals    StockJournal[]
+
+  @@map("stock_mutations")
+}
+
+// ==================== DISCOUNTS ====================
+
+model Discount {
+  id          Int          @id @default(autoincrement())
+  storeId     Int          @map("store_id")
+  productId   Int?         @map("product_id")
+  name        String
+  type        DiscountType
+  valueType   ValueType?   @map("value_type")
+  value       Int?
+  minPurchase Int?         @map("min_purchase")
+  maxDiscount Int?         @map("max_discount")
+  buyQty      Int?         @map("buy_qty")
+  freeQty     Int?         @map("free_qty")
+  startAt     DateTime     @map("start_at")
+  endAt       DateTime     @map("end_at")
+  isActive    Boolean      @default(true) @map("is_active")
+  createdById Int          @map("created_by_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  deletedAt   DateTime?    @map("deleted_at")
+
+  store          Store           @relation(fields: [storeId], references: [id])
+  product        Product?        @relation(fields: [productId], references: [id])
+  createdBy      User            @relation("DiscountCreators", fields: [createdById], references: [id])
+  orderDiscounts OrderDiscount[]
+
+  @@index([storeId, isActive, startAt, endAt])
+  @@map("discounts")
+}
+
+// ==================== VOUCHERS ====================
+
+model Voucher {
+  id                 Int            @id @default(autoincrement())
+  name               String
+  description        String?        @db.Text
+  scope              VoucherScope
+  valueType          ValueType      @map("value_type")
+  value              Int
+  maxDiscount        Int?           @map("max_discount")
+  minPurchase        Int?           @map("min_purchase")
+  productId          Int?           @map("product_id")
+  storeId            Int?           @map("store_id")
+  trigger            VoucherTrigger
+  triggerMinPurchase Int?           @map("trigger_min_purchase")
+  triggerOrderCount  Int?           @map("trigger_order_count")
+  validDays          Int            @map("valid_days")
+  isActive           Boolean        @default(true) @map("is_active")
+  createdById        Int            @map("created_by_id")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+  deletedAt          DateTime?      @map("deleted_at")
+
+  product      Product?      @relation(fields: [productId], references: [id])
+  store        Store?        @relation(fields: [storeId], references: [id])
+  createdBy    User          @relation("VoucherCreators", fields: [createdById], references: [id])
+  userVouchers UserVoucher[]
+
+  @@map("vouchers")
+}
+
+model UserVoucher {
+  id            Int       @id @default(autoincrement())
+  userId        Int       @map("user_id")
+  voucherId     Int       @map("voucher_id")
+  code          String    @unique
+  sourceOrderId Int?      @map("source_order_id")
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  usedOrderId   Int?      @unique @map("used_order_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user           User            @relation(fields: [userId], references: [id])
+  voucher        Voucher         @relation(fields: [voucherId], references: [id])
+  sourceOrder    Order?          @relation("VoucherSourceOrder", fields: [sourceOrderId], references: [id])
+  usedOrder      Order?          @relation("VoucherUsedOrder", fields: [usedOrderId], references: [id])
+  orderDiscounts OrderDiscount[]
+
+  @@map("user_vouchers")
+}
+
+// ==================== SHOPPING CART ====================
+
+model Cart {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user  User       @relation(fields: [userId], references: [id])
+  items CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id        Int      @id @default(autoincrement())
+  cartId    Int      @map("cart_id")
+  productId Int      @map("product_id")
+  quantity  Int
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  cart    Cart    @relation(fields: [cartId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+  @@map("cart_items")
+}
+
+// ==================== ORDERS ====================
+
+model Order {
+  id               Int           @id @default(autoincrement())
+  orderNumber      String        @unique @map("order_number")
+  userId           Int           @map("user_id")
+  storeId          Int           @map("store_id")
+  addressId        Int?          @map("address_id")
+  recipientName    String        @map("recipient_name")
+  phone            String
+  addressLine      String        @map("address_line")
+  cityId           Int           @map("city_id")
+  latitude         Decimal       @db.Decimal(9, 6)
+  longitude        Decimal       @db.Decimal(9, 6)
+  status           OrderStatus   @default(WAITING_PAYMENT)
+  paymentMethod    PaymentMethod @map("payment_method")
+  courier          String
+  courierService   String        @map("courier_service")
+  subtotal         Int
+  discountTotal    Int           @default(0) @map("discount_total")
+  shippingCost     Int           @map("shipping_cost")
+  shippingDiscount Int           @default(0) @map("shipping_discount")
+  total            Int
+  paymentDeadline  DateTime      @map("payment_deadline")
+  paidAt           DateTime?     @map("paid_at")
+  shippedAt        DateTime?     @map("shipped_at")
+  confirmedAt      DateTime?     @map("confirmed_at")
+  cancelledAt      DateTime?     @map("cancelled_at")
+  cancelledBy      Actor?        @map("cancelled_by")
+  cancelReason     String?       @map("cancel_reason") @db.Text
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  user    User     @relation(fields: [userId], references: [id])
+  store   Store    @relation(fields: [storeId], references: [id])
+  address Address? @relation(fields: [addressId], references: [id])
+  city    City     @relation(fields: [cityId], references: [id])
+
+  items           OrderItem[]
+  discounts       OrderDiscount[]
+  payments        Payment[]
+  statusHistories OrderStatusHistory[]
+  stockJournals   StockJournal[]
+  stockMutations  StockMutation[]
+
+  sourcedVouchers UserVoucher[] @relation("VoucherSourceOrder")
+  usedVoucher     UserVoucher?  @relation("VoucherUsedOrder")
+
+  @@index([storeId, status, createdAt])
+  @@index([userId, createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id             Int    @id @default(autoincrement())
+  orderId        Int    @map("order_id")
+  productId      Int    @map("product_id")
+  productName    String @map("product_name")
+  categoryId     Int    @map("category_id")
+  quantity       Int
+  freeQuantity   Int    @default(0) @map("free_quantity")
+  unitPrice      Int    @map("unit_price")
+  discountAmount Int    @default(0) @map("discount_amount")
+  lineTotal      Int    @map("line_total")
+
+  order     Order           @relation(fields: [orderId], references: [id])
+  product   Product         @relation(fields: [productId], references: [id])
+  category  Category        @relation(fields: [categoryId], references: [id])
+  discounts OrderDiscount[]
+
+  @@map("order_items")
+}
+
+model OrderDiscount {
+  id            Int         @id @default(autoincrement())
+  orderId       Int         @map("order_id")
+  orderItemId   Int?        @map("order_item_id")
+  discountId    Int?        @map("discount_id")
+  userVoucherId Int?        @map("user_voucher_id")
+  kind          AppliedKind
+  name          String
+  amount        Int
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  order       Order        @relation(fields: [orderId], references: [id])
+  orderItem   OrderItem?   @relation(fields: [orderItemId], references: [id])
+  discount    Discount?    @relation(fields: [discountId], references: [id])
+  userVoucher UserVoucher? @relation(fields: [userVoucherId], references: [id])
+
+  @@map("order_discounts")
+}
+
+// ==================== PAYMENTS ====================
+
+model Payment {
+  id           Int           @id @default(autoincrement())
+  orderId      Int           @map("order_id")
+  method       PaymentMethod
+  amount       Int
+  proofUrl     String?       @map("proof_url")
+  gatewayRef   String?       @map("gateway_ref")
+  status       PaymentStatus @default(PENDING)
+  reviewedById Int?          @map("reviewed_by_id")
+  reviewedAt   DateTime?     @map("reviewed_at")
+  rejectReason String?       @map("reject_reason") @db.Text
+  paidAt       DateTime?     @map("paid_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  order      Order @relation(fields: [orderId], references: [id])
+  reviewedBy User? @relation("PaymentReviewers", fields: [reviewedById], references: [id])
+
+  @@map("payments")
+}
+
+// ==================== ORDER HISTORY ====================
+
+model OrderStatusHistory {
+  id          Int          @id @default(autoincrement())
+  orderId     Int          @map("order_id")
+  fromStatus  OrderStatus? @map("from_status")
+  toStatus    OrderStatus  @map("to_status")
+  changedById Int?         @map("changed_by_id")
+  note        String?      @db.Text
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  order     Order @relation(fields: [orderId], references: [id])
+  changedBy User? @relation("OrderStatusChangers", fields: [changedById], references: [id])
+
+  @@map("order_status_histories")
+}
